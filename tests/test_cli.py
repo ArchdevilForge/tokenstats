@@ -45,6 +45,22 @@ def test_aggregate_by_model_and_day():
     assert set(by_day) == {"2026-01-01", "2026-01-02"}
 
 
+def test_aggregate_by_week_and_month():
+    prices = Prices()
+    sessions = [
+        mk("pi", "grok-4", datetime(2026, 1, 1), {"input": 1}),   # 2026-W01
+        mk("pi", "grok-4", datetime(2026, 1, 8), {"input": 1}),   # 2026-W02
+        mk("pi", "grok-4", datetime(2026, 2, 2), {"input": 1}),   # 2026-W06
+        mk("pi", "grok-4", None, {"input": 1}),                   # unknown
+    ]
+    by_week, _ = _aggregate(sessions, "week", prices)
+    assert set(by_week) == {"2026-W01", "2026-W02", "2026-W06", "unknown"}
+
+    by_month, _ = _aggregate(sessions, "month", prices)
+    assert set(by_month) == {"2026-01", "2026-02", "unknown"}
+    assert by_month["2026-01"]["sessions"] == 2
+
+
 def test_aggregate_unknown_cost_stays_none():
     prices = Prices()
     sessions = [mk("pi", "no-such-model", None, {"input": 1_000_000})]

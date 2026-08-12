@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import typer
@@ -22,9 +22,16 @@ console = Console()
 def _group_key(s: Session, by: str) -> str:
     if by == "model":
         return s.model or "unknown"
+    if by == "agent":
+        return s.agent
+    if s.started is None:
+        return "unknown"
     if by == "day":
-        return s.started.date().isoformat() if s.started else "unknown"
-    return s.agent
+        return s.started.date().isoformat()
+    if by == "week":
+        y, w, _ = s.started.isocalendar()
+        return f"{y}-W{w:02d}"
+    return s.started.strftime("%Y-%m")  # month
 
 
 def _aggregate(sessions: list[Session], by: str, prices: Prices) -> tuple[dict, dict]:
@@ -77,7 +84,8 @@ def _fmt_tokens(n: int) -> str:
 
 def _print_table(groups: dict, total: dict, by: str) -> None:
     buckets = ("input", "cache_read", "cache_write", "output", "reasoning")
-    header = {"agent": "Agent", "day": "Day", "model": "Model"}[by]
+    header = {"agent": "Agent", "day": "Day", "week": "Week",
+              "month": "Month", "model": "Model"}[by]
     t = Table(
         title=f"[bold]Token usage by {by}[/]",
         title_justify="left",
@@ -111,21 +119,22 @@ def _print_table(groups: dict, total: dict, by: str) -> None:
 
 # -------------------------------------------------------------- command
 # KISS: `tokenstats` shows the per-agent table; a positional verb switches
-# view: model | day | cal | agents
-VERBS = ("agent", "model", "day", "cal", "agents")
+# view: model | day | week | month | cal | agents
+VERBS = ("agent", "model", "day", "week", "month", "cal", "agents")
 
 
 def _load(since: int | None, dirs: list[Path]) -> list[Session]:
     sessions = parse_all(dirs)
     if since:
-        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=since)
+        # session times are naive local, so compare against local now
+        cutoff = datetime.now() - timedelta(days=since)
         sessions = [s for s in sessions if s.started is None or s.started >= cutoff]
     return sessions
 
 
 @app.command()
 def main(
-    verb: str = typer.Argument("agent", help="agent | model | day | cal | agents"),
+    verb: str = typer.Argument("agent", help="agent | model | day | week | month | cal | agents"),
     since: int | None = typer.Option(None, "--since", help="Only the last N days"),
     prices: Path | None = typer.Option(None, "--prices", help="Price table (TOML/JSON)"),
     dirs: list[Path] = typer.Option([], "--dirs", help="Project dirs to scan for aider"),
@@ -134,7 +143,13 @@ def main(
     weeks: int = typer.Option(52, "--weeks", help="Calendar span in weeks"),
     theme: str = typer.Option("dark", "--theme", help="Calendar theme: dark | light"),
     verbose: bool = typer.Option(False, "-v", help="Warn about unknown models"),
+    version: bool = typer.Option(False, "--version", help="Show version and exit"),
 ) -> None:
+    if version:
+        from . import __version__
+
+        console.print(f"tokenstats {__version__}")
+        raise typer.Exit()
     if verb not in VERBS:
         raise typer.BadParameter(f"verb must be one of {', '.join(VERBS)}")
     if metric not in ("tokens", "cost"):
