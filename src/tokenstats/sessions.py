@@ -52,9 +52,10 @@ def _iso(ts: str | None) -> datetime | None:
     if not ts:
         return None
     try:
-        # keep naive UTC so cross-parser comparisons work
+        # convert to naive *local* time: epoch-based parsers (_ts) already
+        # return local time, so day grouping stays consistent across agents
         dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-        return dt.replace(tzinfo=None)
+        return dt.astimezone().replace(tzinfo=None)
     except ValueError:
         return None
 
@@ -131,6 +132,8 @@ def parse_claude() -> list[Session]:
         model_by_id: dict[str, str] = {}
         started = None
         for d in _jsonl(sfile):
+            if started is None:
+                started = _iso(d.get("timestamp"))
             if d.get("type") in ("message", "assistant"):
                 m = d.get("message") or {}
                 u = m.get("usage")
@@ -225,11 +228,7 @@ def parse_opencode() -> list[Session]:
 def _parse_agy_time(ts: str | None) -> datetime | None:
     if not ts or ts.startswith("0001-"):
         return None
-    try:
-        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-        return dt.replace(tzinfo=None)
-    except ValueError:
-        return None
+    return _iso(ts)
 
 
 def parse_agy() -> list[Session]:

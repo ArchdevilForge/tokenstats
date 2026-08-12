@@ -45,7 +45,10 @@ def test_pi_nested(home):
     assert s.tokens == {"input": 300, "output": 50, "cache_read": 50,
                         "cache_write": 0, "reasoning": 5}
     assert s.recorded_cost == pytest.approx(0.75)
-    assert s.started == datetime(2026, 7, 14, 2, 14, 45, 471000)
+    # ISO timestamps are converted to naive local time
+    expected = datetime.fromisoformat(
+        "2026-07-14T02:14:45.471+00:00").astimezone().replace(tzinfo=None)
+    assert s.started == expected
 
 
 def test_pi_empty_usage_skipped(home):
@@ -76,7 +79,8 @@ def test_primeagent_flat(home):
 def test_claude_both_formats_and_dedup(home):
     rows = [
         # old format: streamed snapshots repeat the same message id
-        {"type": "message", "message": {"id": "m1", "model": "claude-opus-5",
+        {"type": "message", "timestamp": "2026-08-01T10:00:00.000Z",
+         "message": {"id": "m1", "model": "claude-opus-5",
                                         "usage": {"input_tokens": 2,
                                                   "output_tokens": 0,
                                                   "cache_creation": 0,
@@ -105,6 +109,7 @@ def test_claude_both_formats_and_dedup(home):
     assert s.tokens["output"] == 47
     assert s.tokens["cache_read"] == 950
     assert s.tokens["cache_write"] == 300
+    assert s.started is not None  # timestamp harvested from records
 
 
 def test_claude_no_usage_skipped(home):
@@ -162,7 +167,9 @@ def test_agy_from_db(home):
     con.close()
     out = S.parse_agy()
     assert len(out) == 1
-    assert out[0].started == datetime(2026, 7, 22, 2, 54, 23, 788685)
+    expected = datetime.fromisoformat(
+        "2026-07-22T02:54:23.788685+00:00").astimezone().replace(tzinfo=None)
+    assert out[0].started == expected
 
 
 def test_agy_fallback_history(home):
