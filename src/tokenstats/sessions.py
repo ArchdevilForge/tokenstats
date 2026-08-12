@@ -123,9 +123,13 @@ def parse_primeagent() -> list[Session]:
 
 # ---------------------------------------------------------- claude code
 def parse_claude() -> list[Session]:
+    # recurse: subagent transcripts live at
+    # <proj>/<session>/subagents/workflows/<wf>/agent-*.jsonl and carry
+    # usage that the parent session file does not include
     root = HOME / ".claude" / "projects"
     out = []
-    for sfile in sorted(root.glob("*/*.jsonl")):
+    seen: set = set()  # ids repeat across files (resumed sessions); dedup
+    for sfile in sorted(root.glob("**/*.jsonl")):
         # streamed snapshots repeat the same message id with growing usage;
         # keep the last occurrence per id, then sum
         usage_by_id: dict[str, dict] = {}
@@ -141,6 +145,9 @@ def parse_claude() -> list[Session]:
                     usage_by_id[m.get("id")] = u
                     if m.get("model"):
                         model_by_id[m.get("id")] = m["model"]
+        usage_by_id = {mid: u for mid, u in usage_by_id.items()
+                       if mid not in seen}
+        seen.update(usage_by_id)
         if not usage_by_id:
             continue
         tokens = {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0}
@@ -168,20 +175,37 @@ def parse_claude() -> list[Session]:
 
 
 # --------------------------------------------------------------- codex
-# Codex rollouts do not record token usage (verified on this machine), so we
-# only count sessions and remember the model.
+# Codex rollouts emit `token_count` events whose `total_token_usage` is a
+# running total for the session — the last one is the session total.
 def parse_codex() -> list[Session]:
     root = HOME / ".codex" / "sessions"
     out = []
     for sfile in sorted(root.glob("**/*.jsonl")):
         model = "unknown"
+        started = None
+        usage = None
         for d in _jsonl(sfile):
+            if started is None:
+                started = _iso(d.get("timestamp"))
             p = d.get("payload") or {}
             m = p.get("model") or d.get("model")
-            if m:
+            if m and model == "unknown":
                 model = m
-                break
-        out.append(Session("codex", sfile.name, model))
+            if p.get("type") == "token_count":
+                info = p.get("info") or {}
+                usage = info.get("total_token_usage") or usage
+        tokens = {}
+        if usage:
+            cached = _num(usage.get("cached_input_tokens"))
+            tokens = {
+                # input_tokens includes the cached part; split it out.
+                # reasoning_output_tokens is a subset of output_tokens, so a
+                # separate bucket would double-count the total
+                "input": max(_num(usage.get("input_tokens")) - cached, 0),
+                "cache_read": cached,
+                "output": _num(usage.get("output_tokens")),
+            }
+        out.append(Session("codex", sfile.name, model, started, tokens))
     return out
 
 
@@ -314,12 +338,57 @@ def parse_aider(dirs: list[Path]) -> list[Session]:
     return out
 
 
+# ----------------------------------------------------------------- qwen
+# qwen-code chats: ~/.qwen/projects/<proj>/chats/<uuid>.jsonl. Usage lives
+# in ui_telemetry records (qwen-code.api_response events), one per API call.
+def parse_qwen() -> list[Session]:
+    root = HOME / ".qwen" / "projects"
+    out = []
+    for sfile in sorted(root.glob("*/chats/*.jsonl")):
+        tokens: dict = {}
+        model = "unknown"
+        started = None
+        for d in _jsonl(sfile):
+            if started is None:
+                started = _iso(d.get("timestamp"))
+            ev = (d.get("systemPayload") or {}).get("uiEvent") or {}
+            if ev.get("event.name") != "qwen-code.api_response":
+                continue
+            if ev.get("model"):
+                model = ev["model"]
+            cached = _num(ev.get("cached_content_token_count"))
+            for k, v in (
+                # gemini-style: input_token_count includes the cached part
+                ("input", _num(ev.get("input_token_count")) - cached
+                 + _num(ev.get("tool_token_count"))),
+                ("cache_read", cached),
+                ("output", _num(ev.get("output_token_count"))),
+                ("reasoning", _num(ev.get("thoughts_token_count"))),
+            ):
+                if v > 0:
+                    tokens[k] = tokens.get(k, 0) + v
+        out.append(Session("qwen", sfile.stem, model, started, tokens))
+    return out
+
+
 # -------------------------------------------------------------- cursor
-# Cursor CLI keeps one dir per chat with a meta.json (title + timestamps).
-# No token/usage is stored locally (billing lives server-side), so we count
-# sessions and remember the date only.
+# Cursor CLI stores one transcript per chat under
+# ~/.cursor/projects/<slug>/agent-transcripts/. No token/usage is stored
+# locally (billing lives server-side), so we count sessions only.
+# Older versions used ~/.cursor/chats/*/*/meta.json — kept as fallback.
 def parse_cursor() -> list[Session]:
     out = []
+    for tfile in sorted((HOME / ".cursor" / "projects")
+                        .glob("*/agent-transcripts/**/*.jsonl")):
+        # ponytail: transcripts hold no timestamps, so the file mtime stands
+        # in for the chat date (wrong if the file is copied/touched)
+        try:
+            started = datetime.fromtimestamp(tfile.stat().st_mtime)
+        except OSError:
+            started = None
+        out.append(Session("cursor", tfile.stem, started=started))
+    if out:
+        return out
     for mfile in sorted((HOME / ".cursor" / "chats").glob("*/*/meta.json")):
         try:
             d = json.loads(mfile.read_text())
@@ -341,6 +410,7 @@ def parse_all(extra_dirs: list[Path] | None = None) -> list[Session]:
     sessions += parse_opencode()
     sessions += parse_agy()
     sessions += parse_cursor()
+    sessions += parse_qwen()
     sessions += parse_generic("goose", HOME / ".local" / "share" / "goose" / "sessions")
     sessions += parse_generic("qwen", HOME / ".qwen" / "sessions")
     sessions += parse_generic("amp", HOME / ".local" / "share" / "amp")
@@ -350,16 +420,19 @@ def parse_all(extra_dirs: list[Path] | None = None) -> list[Session]:
 
 def agent_status() -> list[dict]:
     """Data-source presence per agent, for --list."""
-    sources = {
-        "pi": HOME / ".pi" / "agent" / "sessions",
-        "primeagent": HOME / ".prime" / "agent" / "sessions",
-        "claude": HOME / ".claude" / "projects",
-        "codex": HOME / ".codex" / "sessions",
-        "opencode": HOME / ".local" / "share" / "opencode" / "opencode.db",
-        "cursor": HOME / ".cursor" / "chats",
-        "agy": HOME / ".gemini" / "antigravity-cli" / "conversation_summaries.db",
-        "goose": HOME / ".local" / "share" / "goose" / "sessions",
-        "qwen": HOME / ".qwen" / "sessions",
-        "amp": HOME / ".local" / "share" / "amp",
+    sources: dict[str, tuple[Path, ...]] = {
+        "pi": (HOME / ".pi" / "agent" / "sessions",),
+        "primeagent": (HOME / ".prime" / "agent" / "sessions",),
+        "claude": (HOME / ".claude" / "projects",),
+        "codex": (HOME / ".codex" / "sessions",),
+        "opencode": (HOME / ".local" / "share" / "opencode" / "opencode.db",),
+        "cursor": (HOME / ".cursor" / "projects",
+                   HOME / ".cursor" / "chats"),
+        "agy": (HOME / ".gemini" / "antigravity-cli" / "conversation_summaries.db",),
+        "goose": (HOME / ".local" / "share" / "goose" / "sessions",),
+        "qwen": (HOME / ".qwen" / "projects",
+                 HOME / ".qwen" / "sessions"),
+        "amp": (HOME / ".local" / "share" / "amp",),
     }
-    return [{"agent": a, "present": p.exists()} for a, p in sources.items()]
+    return [{"agent": a, "present": any(p.exists() for p in ps)}
+            for a, ps in sources.items()]

@@ -119,6 +119,23 @@ def test_claude_no_usage_skipped(home):
     assert S.parse_claude() == []
 
 
+def test_claude_subagents_and_crossfile_dedup(home):
+    row = {"type": "assistant", "message": {
+        "id": "m1", "model": "claude-opus-5",
+        "usage": {"input_tokens": 10, "output_tokens": 5}}}
+    # main session + a deep subagent transcript + a resumed copy of m1
+    _pi_file(home, ".claude/projects", "-proj-/sess.jsonl", [row])
+    _pi_file(home, ".claude/projects",
+             "-proj-/sess/subagents/workflows/wf_1/agent-a.jsonl", [
+                 {"type": "assistant", "message": {
+                     "id": "m2", "model": "claude-opus-5",
+                     "usage": {"input_tokens": 100, "output_tokens": 50}}}])
+    _pi_file(home, ".claude/projects", "-proj-/resumed.jsonl", [row])
+    out = S.parse_claude()
+    total_in = sum(s.tokens["input"] for s in out)
+    assert total_in == 110  # m1 counted once, subagent m2 counted
+
+
 # --------------------------------------------------------------- codex
 def test_codex_sessions_only(home):
     _pi_file(home, ".codex/sessions", "2026/06/30/rollout-x.jsonl", [
@@ -129,7 +146,30 @@ def test_codex_sessions_only(home):
     ])
     out = S.parse_codex()
     assert len(out) == 1
-    assert out[0].tokens == {}  # codex records no usage
+    assert out[0].tokens == {}  # no token_count events -> session only
+
+
+def test_codex_token_count_last_total_wins(home):
+    def tc(inp, cached, outp):
+        return {"type": "event_msg", "timestamp": "2026-06-27T02:18:33.594Z",
+                "payload": {"type": "token_count", "info": {
+                    "total_token_usage": {
+                        "input_tokens": inp, "cached_input_tokens": cached,
+                        "output_tokens": outp, "reasoning_output_tokens": 1,
+                        "total_tokens": inp + outp}}}}
+    _pi_file(home, ".codex/sessions", "2026/06/27/rollout-y.jsonl", [
+        {"type": "turn_context", "payload": {"model": "gpt-5.5"}},
+        tc(100, 60, 10),
+        tc(1000, 900, 40),  # cumulative: the last event is the session total
+        {"type": "event_msg", "payload": {"type": "token_count",
+                                          "info": None}},  # ignored
+    ])
+    out = S.parse_codex()
+    assert len(out) == 1
+    s = out[0]
+    assert s.model == "gpt-5.5"
+    assert s.tokens == {"input": 100, "cache_read": 900, "output": 40}
+    assert s.started is not None
 
 
 # ------------------------------------------------------------- opencode
@@ -202,7 +242,43 @@ def test_generic_harvests_usage(home):
     assert out[0].recorded_cost == pytest.approx(0.01)
 
 
+# ----------------------------------------------------------------- qwen
+def test_qwen_ui_telemetry(home):
+    _pi_file(home, ".qwen/projects", "-proj-/chats/c1.jsonl", [
+        {"type": "user", "timestamp": "2026-02-02T10:38:00.000Z",
+         "message": {"content": "hi"}},
+        {"type": "system", "subtype": "ui_telemetry",
+         "timestamp": "2026-02-02T10:38:39.270Z",
+         "systemPayload": {"uiEvent": {
+             "event.name": "qwen-code.api_response", "model": "coder-model",
+             "input_token_count": 19020, "output_token_count": 9,
+             "cached_content_token_count": 20, "thoughts_token_count": 3,
+             "tool_token_count": 5}}},
+        {"type": "system", "subtype": "ui_telemetry",
+         "systemPayload": {"uiEvent": {
+             "event.name": "qwen-code.tool_call"}}},  # not an api_response
+    ])
+    out = S.parse_qwen()
+    assert len(out) == 1
+    s = out[0]
+    assert s.model == "coder-model"
+    assert s.tokens == {"input": 19005, "cache_read": 20, "output": 9,
+                        "reasoning": 3}
+    assert s.started is not None
+
+
 # -------------------------------------------------------------- cursor
+def test_cursor_transcripts(home):
+    t = home / ".cursor/projects/my-proj/agent-transcripts/aa/aa.jsonl"
+    t.parent.mkdir(parents=True)
+    t.write_text('{"role":"user","message":{"content":[]}}\n')
+    out = S.parse_cursor()
+    assert len(out) == 1
+    assert out[0].agent == "cursor"
+    assert out[0].started is not None  # file mtime
+    assert out[0].tokens == {}
+
+
 def test_cursor_meta(home):
     m = home / ".cursor/chats/aa/bb/meta.json"
     m.parent.mkdir(parents=True)

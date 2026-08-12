@@ -42,18 +42,20 @@ tokenstats agents               # which agents are detected
 |---|---|---|---|---|
 | pi | `~/.pi/agent/sessions/*/*.jsonl` | ✅ recorded | ✅ recorded | ✅ |
 | prime-agent | `~/.prime/agent/sessions/*.jsonl` | ✅ recorded | ✅ recorded | ✅ |
-| Claude Code | `~/.claude/projects/*/*.jsonl` | ✅ recorded | price table | ✅ |
+| Claude Code | `~/.claude/projects/**/*.jsonl` incl. subagent transcripts | ✅ recorded | price table | ✅ |
 | opencode | `~/.local/share/opencode/opencode.db` | ✅ recorded | ✅ recorded | ✅ |
-| Codex | `~/.codex/sessions/**/*.jsonl` | — not recorded | — | ✅ |
-| Cursor | `~/.cursor/chats/*/*/meta.json` | — not recorded | — | ✅ |
+| Codex | `~/.codex/sessions/**/*.jsonl` (`token_count` events) | ✅ recorded | price table | ✅ |
+| qwen | `~/.qwen/projects/*/chats/*.jsonl` (telemetry events) | ✅ recorded | price table | ✅ |
+| Cursor | `~/.cursor/projects/*/agent-transcripts/` | — not recorded | — | ✅ |
 | agy / Gemini CLI | `~/.gemini/antigravity-cli/conversation_summaries.db` | — not recorded | — | ✅ |
 | aider | `.aider.tokens.json` in `--dirs` | ⚠️ best-effort | — | ⚠️ |
 | goose | `~/.local/share/goose/sessions/*.jsonl` | ⚠️ best-effort | ⚠️ | ⚠️ |
-| qwen | `~/.qwen/sessions/*.jsonl` | ⚠️ best-effort | ⚠️ | ⚠️ |
 | amp | `~/.local/share/amp` | ⚠️ best-effort | ⚠️ | ⚠️ |
 
-Agents that don't record usage locally (Codex, Cursor, agy) still show their
+Agents that don't record usage locally (Cursor, agy) still show their
 session counts, so you get a complete activity timeline across all tools.
+Claude Code message ids are deduplicated globally, so resumed sessions and
+subagent transcripts never double-count.
 
 ## Install
 
@@ -143,8 +145,11 @@ your day, not UTC's.
 
 ## Limitations
 
-- Codex, Cursor and agy store no token usage locally — session counts only.
-- aider/goose/qwen/amp parsers are best-effort and unverified.
+- Cursor and agy store no token usage locally — session counts only (Cursor
+  chat dates come from transcript file mtimes).
+- aider/goose/amp parsers are best-effort and unverified.
+- Editor-only tools (Cline, Windsurf, Continue) keep usage in editor storage
+  or binary formats and are not scanned.
 - Scanning ~2GB of pi history takes ~4s; there is no cache yet.
 - Prices are approximations — calibrate with `--prices` for exact spend.
 
