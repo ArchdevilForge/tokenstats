@@ -5,7 +5,7 @@ one table, or a GitHub-style contribution calendar.
 
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![tests](https://img.shields.io/badge/tests-33%20passed-brightgreen)
+[![ci](https://github.com/ArchdevilForge/tokenstats/actions/workflows/ci.yml/badge.svg)](https://github.com/ArchdevilForge/tokenstats/actions/workflows/ci.yml)
 
 Supported agents: **pi, prime-agent, Claude Code, Codex, opencode, Cursor,
 agy (Gemini CLI), aider, goose, qwen, amp**.
@@ -14,6 +14,8 @@ agy (Gemini CLI), aider, goose, qwen, amp**.
 tokenstats                      # per-agent table
 tokenstats model                # per-model table
 tokenstats day --since 7        # last week by day
+tokenstats week                 # by ISO week
+tokenstats month                # by month
 tokenstats cal                  # GitHub-style activity calendar
 tokenstats cal --since 30 --metric cost   # last 30 days of spend
 tokenstats agents               # which agents are detected
@@ -72,7 +74,7 @@ tokenstats
 ```
 Usage: tokenstats [OPTIONS] [VERB]
 
-  verb: agent (default) | model | day | cal | agents
+  verb: agent (default) | model | day | week | month | cal | agents
 
 Options:
   --since N       Only the last N days
@@ -82,6 +84,7 @@ Options:
   --metric M      Calendar metric: tokens (default) | cost
   --weeks N       Calendar span in weeks (default 52)
   --theme T       Calendar theme: dark (default) | light
+  --version       Show version and exit
   -v              Warn about models without a configured price
 ```
 
@@ -131,8 +134,12 @@ output = 8.0
 uv run pytest tests/
 ```
 
-33 tests cover every parser (fixture data for all 11 agents), pricing
-matching/fallback, aggregation, and calendar quantiles.
+Tests cover every parser (fixture data for all 11 agents), pricing
+matching/fallback, aggregation, and calendar quantiles. CI runs them on
+Python 3.11–3.13.
+
+All timestamps are normalized to your local timezone, so "a day" means
+your day, not UTC's.
 
 ## Limitations
 

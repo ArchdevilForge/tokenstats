@@ -22,8 +22,8 @@ dependencies = [
 tokenstats = "tokenstats.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/auren23/tokenstats"
-Repository = "https://github.com/auren23/tokenstats"
+Homepage = "https://github.com/ArchdevilForge/tokenstats"
+Repository = "https://github.com/ArchdevilForge/tokenstats"
 
 [build-system]
 requires = ["hatchling"]
