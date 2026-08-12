@@ -1,6 +1,12 @@
 # Copy to prices.toml and adjust. Units: USD per 1M tokens.
 # cache_read/cache_write default to 0.1x / 1.25x of input when omitted.
 # Keys match model names by prefix, so "claude-opus" also covers "claude-opus-5".
+# User keys always win over the auto-fetched LiteLLM prices — set a model to
+# 0/0 when it's free for you (subscription, self-hosted, promo endpoint).
+
+[models."claude-fable"]
+input = 0.0
+output = 0.0
 
 [models."claude-opus"]
 input = 5.0

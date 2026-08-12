@@ -137,6 +137,8 @@ def main(
     verb: str = typer.Argument("agent", help="agent | model | day | week | month | cal | agents"),
     since: int | None = typer.Option(None, "--since", help="Only the last N days"),
     prices: Path | None = typer.Option(None, "--prices", help="Price table (TOML/JSON)"),
+    mode: str = typer.Option("auto", "--mode",
+                             help="Cost mode: auto | calculate | display"),
     dirs: list[Path] = typer.Option([], "--dirs", help="Project dirs to scan for aider"),
     json_out: bool = typer.Option(False, "--json", help="Emit JSON"),
     metric: str = typer.Option("tokens", "--metric", help="Calendar metric: tokens | cost"),
@@ -154,6 +156,8 @@ def main(
         raise typer.BadParameter(f"verb must be one of {', '.join(VERBS)}")
     if metric not in ("tokens", "cost"):
         raise typer.BadParameter("--metric must be tokens or cost")
+    if mode not in ("auto", "calculate", "display"):
+        raise typer.BadParameter("--mode must be auto, calculate or display")
     if theme not in ("dark", "light"):
         raise typer.BadParameter("--theme must be dark or light")
 
@@ -168,7 +172,7 @@ def main(
         raise typer.Exit()
 
     sessions = _load(since, dirs)
-    prices_obj = Prices.load(prices)
+    prices_obj = Prices.load(prices, mode)
 
     if verb == "cal":
         # KISS: a --since filter implies a matching calendar window

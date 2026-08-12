@@ -81,6 +81,7 @@ Usage: tokenstats [OPTIONS] [VERB]
 Options:
   --since N       Only the last N days
   --prices FILE   Price table (TOML or JSON), see prices.example.toml
+  --mode M        Cost mode: auto (default) | calculate | display
   --dirs PATH     Extra project dirs to scan for aider data
   --json          Emit JSON instead of a table
   --metric M      Calendar metric: tokens (default) | cost
@@ -109,13 +110,32 @@ Fri  ░░░░░░░░░░░░░░░░░░░░░░░░░
 
 ## Pricing
 
-Costs are estimated from built-in USD-per-1M-token prices (early 2026 list
-prices). Override with `--prices prices.toml`:
+Per-model prices come from [LiteLLM's community price
+DB](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json)
+(the same source ccusage uses) — fetched at most once a week, cached in
+`~/.cache/tokenstats/`, and degrading silently to a small built-in table
+when offline.
+
+### Cost modes
+
+`--mode` controls how a session's cost is determined (ccusage semantics):
+
+- `auto` (default) — the cost the agent itself recorded wins (it reflects
+  actual billing, including free or discounted routing); calculated from
+  the price table only when missing.
+- `calculate` — always calculated from token counts, ignoring recorded costs.
+- `display` — only recorded costs, never calculates.
+
+### Overrides
+
+Override any model with `--prices prices.toml` — useful when a model is
+free for you (subscription, self-hosted, promo) but has a list price:
 
 ```toml
-[models."claude-opus"]
-input = 5.0
-output = 25.0
+# my Claude Code routes fable through a free endpoint
+[models."claude-fable"]
+input = 0.0
+output = 0.0
 
 [models."grok-4"]
 input = 2.0
@@ -124,10 +144,10 @@ output = 8.0
 
 - Keys match model names by prefix, so `"claude-opus"` also covers
   `claude-opus-5-20260230`; provider prefixes like `deepseek/` are stripped.
+- User keys always win, even over exact LiteLLM entries.
 - `cache_read` / `cache_write` default to `0.1x` / `1.25x` of the input price
   (Anthropic's rule) unless configured.
-- Models without a configured price fall back to the cost the agent itself
-  recorded; models with no price and no recorded cost show `—`.
+- Models with no price and no recorded cost show `—`.
 - Model names containing `free` are billed $0.
 
 ## Tests
