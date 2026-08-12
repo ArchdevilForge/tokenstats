@@ -1,0 +1,19 @@
+# Copy to prices.toml and adjust. Units: USD per 1M tokens.
+# cache_read/cache_write default to 0.1x / 1.25x of input when omitted.
+# Keys match model names by prefix, so "claude-opus" also covers "claude-opus-5".
+
+[models."claude-opus"]
+input = 5.0
+output = 25.0
+
+[models."grok-4"]
+input = 2.0
+output = 8.0
+
+[models."glm-5.2"]
+input = 0.6
+output = 2.0
+
+[models."grok-composer-2.5-fast"]
+input = 0.3
+output = 1.2
